@@ -1,10 +1,17 @@
 FROM python:3.11-slim
 
-# Instalar ffmpeg, nodejs (requerido por yt-dlp) y dependencias del sistema
+# Instalar ffmpeg y dependencias del sistema
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg nodejs && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Instalar Node.js 20 LTS (requerido por yt-dlp para extraer YouTube)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    node --version
 
 WORKDIR /app
 
