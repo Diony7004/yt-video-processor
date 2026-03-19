@@ -14,7 +14,7 @@ Endpoints:
   GET  /health         - Health check
 """
 
-from fastapi import FastAPI, HTTPException, Header, BackgroundTasks, Depends
+from fastapi import FastAPI, HTTPException, Header, BackgroundTasks, Depends, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
@@ -27,8 +27,15 @@ import shutil
 import base64
 import requests as http_requests
 
-# Base args para yt-dlp: JS runtime + anti-bot
-YT_DLP_BASE = ["yt-dlp", "--js-runtimes", "node", "--extractor-args", "youtube:player_client=mediaconnect"]
+# Ruta persistente para cookies de YouTube
+COOKIES_PATH = "/tmp/yt-processor/cookies.txt"
+
+def yt_dlp_base():
+    """Construye args base para yt-dlp, incluyendo cookies si existen."""
+    args = ["yt-dlp", "--js-runtimes", "node"]
+    if os.path.exists(COOKIES_PATH):
+        args += ["--cookies", COOKIES_PATH]
+    return args
 
 app = FastAPI(
     title="YT Video Processor",
@@ -131,7 +138,7 @@ def _run_ingest_pipeline(job_id: str, url: str, segment_duration: int, video_tit
         # --- Step 1: Metadata ---
         job["step"] = "downloading_metadata"
         meta_result = subprocess.run(
-            YT_DLP_BASE + ["--dump-json", "--no-download", url],
+            yt_dlp_base() + ["--dump-json", "--no-download", url],
             capture_output=True, text=True, timeout=60
         )
         if meta_result.returncode != 0:
@@ -146,7 +153,7 @@ def _run_ingest_pipeline(job_id: str, url: str, segment_duration: int, video_tit
         video_path = os.path.join(job_dir, "full_video.mp4")
         dl_result = subprocess.run(
             [
-                *YT_DLP_BASE,
+                *yt_dlp_base(),
                 "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
                 "--merge-output-format", "mp4",
                 "-o", video_path,
@@ -267,6 +274,36 @@ def _run_ingest_pipeline(job_id: str, url: str, segment_duration: int, video_tit
         shutil.rmtree(job_dir, ignore_errors=True)
 
 
+# === COOKIES MANAGEMENT ===
+
+@app.post("/upload-cookies")
+async def upload_cookies(request: Request, api_key: str = Depends(verify_api_key)):
+    """Sube cookies.txt como texto plano en el body."""
+    body = await request.body()
+    content = body.decode("utf-8")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="El body está vacío")
+    os.makedirs(os.path.dirname(COOKIES_PATH), exist_ok=True)
+    with open(COOKIES_PATH, "w") as f:
+        f.write(content)
+    return {"status": "ok", "message": f"Cookies guardadas ({len(content)} bytes)", "path": COOKIES_PATH}
+
+@app.get("/cookies-status")
+async def cookies_status(api_key: str = Depends(verify_api_key)):
+    """Verifica si hay cookies cargadas."""
+    exists = os.path.exists(COOKIES_PATH)
+    size = os.path.getsize(COOKIES_PATH) if exists else 0
+    return {"exists": exists, "size_bytes": size, "path": COOKIES_PATH}
+
+@app.delete("/cookies")
+async def delete_cookies(api_key: str = Depends(verify_api_key)):
+    """Elimina las cookies guardadas."""
+    if os.path.exists(COOKIES_PATH):
+        os.remove(COOKIES_PATH)
+        return {"status": "ok", "message": "Cookies eliminadas"}
+    return {"status": "ok", "message": "No había cookies"}
+
+
 # === ORIGINAL ENDPOINTS (kept for flexibility) ===
 
 @app.get("/health")
@@ -300,7 +337,7 @@ def process_video(req: ProcessRequest):
 
     try:
         meta_result = subprocess.run(
-            YT_DLP_BASE + ["--dump-json", "--no-download", req.url],
+            yt_dlp_base() + ["--dump-json", "--no-download", req.url],
             capture_output=True, text=True, timeout=60
         )
         if meta_result.returncode != 0:
@@ -317,7 +354,7 @@ def process_video(req: ProcessRequest):
     try:
         dl_result = subprocess.run(
             [
-                *YT_DLP_BASE,
+                *yt_dlp_base(),
                 "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
                 "--merge-output-format", "mp4",
                 "-o", video_path,
