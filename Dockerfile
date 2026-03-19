@@ -1,19 +1,17 @@
-FROM python:3.11-slim
+FROM node:20-slim
 
-# Instalar ffmpeg y dependencias del sistema
+# Instalar Python 3.11, ffmpeg y dependencias
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Instalar Node.js 20 LTS (requerido por yt-dlp para extraer YouTube)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+    apt-get install -y --no-install-recommends python3 python3-pip python3-venv ffmpeg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    node --version
+    node --version && python3 --version
 
 WORKDIR /app
+
+# Crear venv para evitar conflictos con system packages
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
 # Instalar dependencias Python
 COPY requirements.txt .
