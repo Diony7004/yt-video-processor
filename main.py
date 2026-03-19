@@ -27,6 +27,9 @@ import shutil
 import base64
 import requests as http_requests
 
+# Base args para yt-dlp: JS runtime + anti-bot
+YT_DLP_BASE = ["yt-dlp", "--js-runtimes", "node", "--extractor-args", "youtube:player_client=mediaconnect"]
+
 app = FastAPI(
     title="YT Video Processor",
     description="Descarga videos de YouTube, genera embeddings con Gemini 2 y almacena en Qdrant",
@@ -128,7 +131,7 @@ def _run_ingest_pipeline(job_id: str, url: str, segment_duration: int, video_tit
         # --- Step 1: Metadata ---
         job["step"] = "downloading_metadata"
         meta_result = subprocess.run(
-            ["yt-dlp", "--js-runtimes", "node", "--dump-json", "--no-download", url],
+            YT_DLP_BASE + ["--dump-json", "--no-download", url],
             capture_output=True, text=True, timeout=60
         )
         if meta_result.returncode != 0:
@@ -143,7 +146,7 @@ def _run_ingest_pipeline(job_id: str, url: str, segment_duration: int, video_tit
         video_path = os.path.join(job_dir, "full_video.mp4")
         dl_result = subprocess.run(
             [
-                "yt-dlp", "--js-runtimes", "node",
+                *YT_DLP_BASE,
                 "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
                 "--merge-output-format", "mp4",
                 "-o", video_path,
@@ -297,7 +300,7 @@ def process_video(req: ProcessRequest):
 
     try:
         meta_result = subprocess.run(
-            ["yt-dlp", "--js-runtimes", "node", "--dump-json", "--no-download", req.url],
+            YT_DLP_BASE + ["--dump-json", "--no-download", req.url],
             capture_output=True, text=True, timeout=60
         )
         if meta_result.returncode != 0:
@@ -314,7 +317,7 @@ def process_video(req: ProcessRequest):
     try:
         dl_result = subprocess.run(
             [
-                "yt-dlp", "--js-runtimes", "node",
+                *YT_DLP_BASE,
                 "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
                 "--merge-output-format", "mp4",
                 "-o", video_path,
